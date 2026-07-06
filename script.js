@@ -132,34 +132,6 @@
     }
   }
 
-  // Amazon and Mercado Livre run antibot protection that redirects the scraper
-  // to a verification/CAPTCHA page before it ever reaches the product page —
-  // no code fix on our end can get around that without a paid proxy service.
-  const BLOCKED_DOMAIN_PATTERNS = [/amazon\./, /mercadolivre\./, /mercadolibre\./];
-
-  function isKnownBlockedDomain(domain) {
-    return BLOCKED_DOMAIN_PATTERNS.some((re) => re.test(domain));
-  }
-
-  // Even when the fetch "succeeds", a blocked domain often hands back the
-  // verification page itself (generic brand title, cookie-notice description)
-  // instead of the real product — catch that so we don't silently save junk.
-  const BOT_BLOCK_TITLES = new Set([
-    "mercado libre",
-    "mercado livre",
-    "amazon.com",
-    "amazon",
-    "just a moment...",
-    "attention required! | cloudflare",
-    "access denied",
-    "robot check",
-  ]);
-
-  function looksLikeBotBlockPage(meta) {
-    const title = (meta.title || "").trim().toLowerCase();
-    return BOT_BLOCK_TITLES.has(title);
-  }
-
   // ---------- Category select setup (always all 18 categories, for assigning an item) ----------
 
   const todasBtn = document.getElementById("todasBtn");
@@ -427,25 +399,15 @@
     const url = urlInput.value.trim();
     if (!url) return;
 
-    // Amazon/Mercado Livre run antibot protection that blocks this entirely —
-    // nothing to fetch there, so skip straight to manual entry, no message.
-    const domain = getDomain(url);
-    if (isKnownBlockedDomain(domain)) return;
-
     fetchStatus.textContent = "Buscando dados do produto...";
     fetchBtn.disabled = true;
 
     try {
       const meta = await fetchMetadata(url);
-      // A blocked/verification page sometimes "succeeds" but hands back generic
-      // junk (site name as title, cookie-notice as description) — skip it
-      // rather than silently filling the form with the wrong info.
-      if (!looksLikeBotBlockPage(meta)) {
-        if (meta.title) titleInput.value = meta.title;
-        if (meta.description) descInput.value = meta.description;
-        if (meta.image) imageInput.value = meta.image;
-        updatePreview();
-      }
+      if (meta.title) titleInput.value = meta.title;
+      if (meta.description) descInput.value = meta.description;
+      if (meta.image) imageInput.value = meta.image;
+      updatePreview();
     } catch (err) {
       // Fetch failed — leave whatever fields are still empty for manual entry.
     } finally {
