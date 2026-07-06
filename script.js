@@ -29,7 +29,7 @@
     { key: "ferramentas", label: "Ferramentas" },
     { key: "jardinagem", label: "Jardinagem" },
     { key: "automotivo", label: "Automotivo" },
-    { key: "infantil", label: "Infantil" },
+    { key: "diversao", label: "Diversão" },
     { key: "alimentos", label: "Alimentos" },
   ];
   const CATEGORY_KEYS = new Set(CATEGORIES.map((c) => c.key));
