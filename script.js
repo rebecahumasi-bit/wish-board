@@ -100,6 +100,16 @@
     return currencyFormatter.format(n);
   }
 
+  // Accepts "R$2.041,55", "2041,55", "2041.55" or "2041" — strips any currency
+  // symbol/spaces, and treats "," as the decimal separator whenever it's
+  // present (Brazilian format), falling back to "." otherwise.
+  function parsePriceInput(raw) {
+    const cleaned = raw.replace(/[^\d,.]/g, "").trim();
+    if (!cleaned) return NaN;
+    const normalized = cleaned.includes(",") ? cleaned.replace(/\./g, "").replace(",", ".") : cleaned;
+    return parseFloat(normalized);
+  }
+
   // ---------- Metadata fetching (Open Graph via Microlink public API) ----------
 
   async function fetchMetadata(url) {
@@ -453,7 +463,7 @@
 
     const url = urlInput.value.trim();
     const title = titleInput.value.trim();
-    const price = parseFloat(priceInput.value);
+    const price = parsePriceInput(priceInput.value);
 
     if (!url || !title || Number.isNaN(price)) return;
 
