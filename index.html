@@ -116,6 +116,16 @@
         </label>
       </div>
 
+      <div class="field ocr-field">
+        <span>Preço por print (opcional)</span>
+        <div class="ocr-dropzone" id="ocrDropzone" tabindex="0" role="button" aria-label="Cole ou selecione uma imagem do preço">
+          <img class="ocr-thumb" id="ocrThumb" alt="" hidden />
+          <p class="ocr-drop-text">Cole sua imagem (⌘V) ou <label class="ocr-pick" for="priceOcrInput">selecione um arquivo do seu computador</label></p>
+        </div>
+        <input type="file" id="priceOcrInput" accept="image/*" hidden />
+        <p class="ocr-status" id="ocrStatus"></p>
+      </div>
+
       <div class="modal-actions">
         <button type="button" class="btn" id="cancelBtn">Cancelar</button>
         <button type="submit" class="btn btn-primary" id="submitItemBtn">Adicionar</button>
@@ -176,6 +186,9 @@
   </article>
 </template>
 
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabase-client.js"></script>
 <script src="auth.js"></script>
 <script src="script.js"></script>
 </body>

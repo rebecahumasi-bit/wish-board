@@ -1,15 +1,17 @@
 (() => {
   "use strict";
 
-  // Só roda o app se alguém estiver logado. A tela de login (auth.js) cuida
-  // do resto; sem usuário, não montamos nada. Cada pessoa tem seus próprios
-  // itens, guardados numa chave separada por usuário.
-  const SESSION_KEY = "wishboard:currentUser";
-  const currentUser = localStorage.getItem(SESSION_KEY);
-  if (!currentUser) return;
-
-  const STORAGE_KEY = "productWishlist:items:v2:" + currentUser;
-  const CATEGORIES_STORAGE_KEY = "productWishlist:categories:v1:" + currentUser;
+  // Dois modos de armazenamento (ver auth.js):
+  //  - "local": contas comuns de outras pessoas -> dados no localStorage do
+  //     navegador, separados por usuário (comportamento antigo).
+  //  - "cloud": a conta CONJUNTA (só nós) -> dados na NUVEM (Supabase), numa
+  //     única linha compartilhada, sincronizada entre dispositivos.
+  const BOARD_ID = "shared";
+  const MODE = localStorage.getItem("wishboard:mode"); // "local" | "cloud" | null
+  const currentUser = localStorage.getItem("wishboard:currentUser");
+  const isCloud = MODE === "cloud";
+  const STORAGE_KEY = currentUser ? "productWishlist:items:v2:" + currentUser : null;
+  const CATEGORIES_STORAGE_KEY = currentUser ? "productWishlist:categories:v1:" + currentUser : null;
   const MICROLINK_ENDPOINT = "https://api.microlink.io/";
   // Microlink scrapes the target page server-side on a cache miss, which can
   // easily take longer than a few seconds for heavier pages — 8s was cutting
@@ -40,25 +42,9 @@
   ];
   const ALL_KEY = "todas";
 
-  function loadCategories() {
-    try {
-      const raw = window.localStorage.getItem(CATEGORIES_STORAGE_KEY);
-      const parsed = raw ? JSON.parse(raw) : null;
-      return Array.isArray(parsed) && parsed.length ? parsed : DEFAULT_CATEGORIES.map((c) => ({ ...c }));
-    } catch (err) {
-      return DEFAULT_CATEGORIES.map((c) => ({ ...c }));
-    }
-  }
-
-  function saveCategories(categories) {
-    try {
-      window.localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(categories));
-    } catch (err) {
-      // Categories just won't persist across reloads if storage is unavailable.
-    }
-  }
-
-  let CATEGORIES = loadCategories();
+  // Começa com as categorias padrão; a nuvem substitui assim que carregar.
+  // saveCategories() está definido no bloco de armazenamento (envia pra nuvem).
+  let CATEGORIES = DEFAULT_CATEGORIES.map((c) => ({ ...c }));
 
   function isValidCategoryKey(key) {
     return CATEGORIES.some((c) => c.key === key);
@@ -126,48 +112,66 @@
     currency: "BRL",
   });
 
-  // ---------- Storage (with graceful fallback if localStorage is blocked, e.g. inside an iframe) ----------
+  // ---------- Armazenamento (local OU nuvem, conforme o modo) ----------
+  // items e CATEGORIES ficam em memória; saveItems/saveCategories aceitam
+  // argumento por compatibilidade, mas sempre gravam o estado atual.
 
-  let memoryItems = [];
-  let storageAvailable = true;
+  let items = [];
+  let saveTimer = null;
 
-  function testStorage() {
-    try {
-      const testKey = "__wishlist_test__";
-      window.localStorage.setItem(testKey, "1");
-      window.localStorage.removeItem(testKey);
-      return true;
-    } catch (err) {
-      return false;
+  function saveBoard() {
+    if (isCloud) {
+      if (!window.sb) return;
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        window.sb
+          .from("board")
+          .update({
+            items: items,
+            categories: CATEGORIES,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", BOARD_ID)
+          .then(({ error }) => {
+            if (error) console.error("Erro ao salvar na nuvem:", error);
+          });
+      }, 400);
+    } else if (STORAGE_KEY) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+        localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(CATEGORIES));
+      } catch (err) {
+        /* sem persistência se o localStorage estiver bloqueado */
+      }
     }
   }
 
-  storageAvailable = testStorage();
-
-  function loadItems() {
-    if (!storageAvailable) return memoryItems;
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : [];
-    } catch (err) {
-      return [];
-    }
+  function saveItems() {
+    saveBoard();
   }
 
-  function saveItems(items) {
-    if (!storageAvailable) {
-      memoryItems = items;
-      return;
-    }
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-    } catch (err) {
-      storageAvailable = false;
-      memoryItems = items;
-    }
+  function saveCategories() {
+    saveBoard();
   }
 
-  let items = loadItems();
+  // Contas locais carregam os dados imediatamente do localStorage.
+  // A conta conjunta (nuvem) carrega no bloco "Nuvem", no fim do arquivo.
+  if (!isCloud && STORAGE_KEY) {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(arr)) items = arr;
+    } catch (err) {
+      /* ignora */
+    }
+    try {
+      const rawC = localStorage.getItem(CATEGORIES_STORAGE_KEY);
+      const parsed = rawC ? JSON.parse(rawC) : null;
+      if (Array.isArray(parsed) && parsed.length) CATEGORIES = parsed;
+    } catch (err) {
+      /* ignora */
+    }
+  }
 
   // ---------- Helpers ----------
 
@@ -734,6 +738,20 @@
     editingItemId = null;
     addForm.reset();
     fetchStatus.textContent = "";
+    const ocrStatusEl = document.getElementById("ocrStatus");
+    if (ocrStatusEl) {
+      ocrStatusEl.textContent = "";
+      ocrStatusEl.classList.remove("error");
+    }
+    const ocrThumbEl = document.getElementById("ocrThumb");
+    if (ocrThumbEl) {
+      if (ocrThumbEl.dataset.url) {
+        URL.revokeObjectURL(ocrThumbEl.dataset.url);
+        delete ocrThumbEl.dataset.url;
+      }
+      ocrThumbEl.hidden = true;
+      ocrThumbEl.removeAttribute("src");
+    }
     previewBox.hidden = true;
   }
 
@@ -786,6 +804,544 @@
 
   [titleInput, imageInput, urlInput].forEach((el) => {
     el.addEventListener("input", updatePreview);
+  });
+
+  // ---------- Ler o preço a partir de um print (OCR no navegador) ----------
+  // Usa o Tesseract.js (carregado por CDN no index.html). Como é a própria
+  // pessoa que envia a imagem, isto NÃO depende de acessar a loja nem esbarra
+  // em bloqueio de bots — só lê o texto do print e procura um valor no formato
+  // de preço brasileiro (ex.: "R$ 1.234,56"). O usuário revisa antes de salvar.
+
+  const priceOcrInput = document.getElementById("priceOcrInput");
+  const ocrStatus = document.getElementById("ocrStatus");
+  const ocrDropzone = document.getElementById("ocrDropzone");
+  const ocrThumb = document.getElementById("ocrThumb");
+
+  function findPriceInText(text) {
+    // Normaliza espaços/tabs (mantém quebras de linha, que ajudam a separar
+    // reais dos centavos sobrescritos). O "$" às vezes é lido como "S" pelo OCR,
+    // por isso os padrões aceitam [\$S].
+    const t = text.replace(/[ \t]+/g, " ");
+
+    // 1) Formato com vírgula: "R$ 1.234,56" ou apenas "1.234,56".
+    //    Prefere o valor que vem acompanhado de "R$".
+    const comma = t.match(/(?:R\s?[\$S]\s*)?\d{1,3}(?:\.\d{3})*,\d{2}/g);
+    if (comma && comma.length) {
+      const withR = comma.find((s) => /R\s?[\$S]/i.test(s));
+      return (withR || comma[0]).replace(/\s+/g, " ").replace(/R\s?S/i, "R$").trim();
+    }
+
+    // 2) Estilo lojas com centavos sobrescritos, SEM vírgula: "R$ 189 99".
+    //    Junta os reais com os dois dígitos de centavos que vêm em seguida
+    //    (separados por espaço, quebra de linha, ponto ou vírgula solta).
+    const sup = t.match(/R\s?[\$S]\s*(\d{1,3}(?:\.\d{3})*)[\s.,]+(\d{2})(?!\d)/i);
+    if (sup) return `R$ ${sup[1]},${sup[2]}`;
+
+    // 3) Dígitos "grudados" depois do R$ (o OCR juntou reais e centavos),
+    //    ex.: "R$18999" -> 189,99 | "R$20000" -> 200,00.
+    const glued = t.match(/R\s?[\$S]\s*(\d{5,6})(?!\d)/i);
+    if (glued) {
+      const n = glued[1];
+      return `R$ ${n.slice(0, -2)},${n.slice(-2)}`;
+    }
+
+    // 4) Só reais, sem centavos: "R$ 189".
+    const only = t.match(/R\s?[\$S]\s*(\d{1,3}(?:\.\d{3})*)(?!\d)/i);
+    if (only) return `R$ ${only[1]},00`;
+
+    return null;
+  }
+
+  // Mostra uma miniatura da imagem colada/selecionada dentro da área.
+  function showOcrThumb(file) {
+    if (!ocrThumb) return;
+    if (ocrThumb.dataset.url) URL.revokeObjectURL(ocrThumb.dataset.url);
+    const url = URL.createObjectURL(file);
+    ocrThumb.dataset.url = url;
+    ocrThumb.src = url;
+    ocrThumb.hidden = false;
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // Decodifica um File/Blob usando a primeira, dentre várias estratégias
+  // diferentes do navegador, que funcionar. Algumas fontes de imagem (ex.:
+  // arrastar a miniatura flutuante de um print no Mac direto pra página, sem
+  // salvar antes) fazem UM caminho específico de leitura falhar de forma
+  // consistente — não é demora, é aquele código não conseguir ler aquele
+  // arquivo. Só variar quando/quantas vezes tentamos não ajuda; o que ajuda é
+  // tentar um jeito de ler completamente diferente.
+  async function decodeFileToDrawable(file) {
+    const errors = [];
+
+    // 0) file.arrayBuffer(): força materializar os bytes de verdade em
+    // memória (em vez de só guardar uma referência "promessa" ao arquivo) e
+    // constrói um Blob novo, 100% local, a partir deles. Isso importa pra
+    // arquivos "prometidos" pelo sistema (ex.: arrastar a miniatura de um
+    // print no Mac antes de salvar em qualquer lugar) — o navegador às vezes
+    // só busca os dados de verdade quando alguém pede o ArrayBuffer.
+    try {
+      const buffer = await file.arrayBuffer();
+      const freshBlob = new Blob([buffer], { type: file.type || "image/png" });
+      const url = URL.createObjectURL(freshBlob);
+      const img = await new Promise((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error("Falha ao carregar blob reconstruído"));
+        el.src = url;
+      });
+      return {
+        drawable: img,
+        width: img.naturalWidth || img.width,
+        height: img.naturalHeight || img.height,
+        cleanup: () => URL.revokeObjectURL(url),
+      };
+    } catch (err) {
+      errors.push(err);
+    }
+
+    // 1) createImageBitmap: API mais nova, decodifica por um caminho interno
+    // totalmente diferente do <img>/FileReader — normalmente a mais tolerante.
+    if (typeof createImageBitmap === "function") {
+      try {
+        const bitmap = await createImageBitmap(file);
+        return { drawable: bitmap, width: bitmap.width, height: bitmap.height, cleanup: () => bitmap.close() };
+      } catch (err) {
+        errors.push(err);
+      }
+    }
+
+    // 2) <img> + URL.createObjectURL (blob:), o jeito "clássico".
+    try {
+      const url = URL.createObjectURL(file);
+      const img = await new Promise((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error("Falha ao carregar via blob URL"));
+        el.src = url;
+      });
+      return {
+        drawable: img,
+        width: img.naturalWidth || img.width,
+        height: img.naturalHeight || img.height,
+        cleanup: () => URL.revokeObjectURL(url),
+      };
+    } catch (err) {
+      errors.push(err);
+    }
+
+    // 3) <img> + FileReader.readAsDataURL — outro caminho de leitura, embutindo
+    // os bytes direto no src em vez de um blob: URL.
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error("Falha ao ler como data URL"));
+        reader.readAsDataURL(file);
+      });
+      const img = await new Promise((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error("Falha ao carregar via data URL"));
+        el.src = dataUrl;
+      });
+      return {
+        drawable: img,
+        width: img.naturalWidth || img.width,
+        height: img.naturalHeight || img.height,
+        cleanup: () => {},
+      };
+    } catch (err) {
+      errors.push(err);
+    }
+
+    throw new Error(
+      "Nenhum método de leitura funcionou: " + errors.map((e) => e.message).join(" | ")
+    );
+  }
+
+  // Desenha a imagem original num canvas simples, sem nenhum tratamento.
+  // Usamos isto (em vez do File/Blob direto) como entrada do Tesseract.
+  const CANVAS_RETRY_DELAYS_MS = [300, 800, 1600, 3000];
+
+  async function fileToCanvas(file, attempt = 0) {
+    try {
+      const { drawable, width, height, cleanup } = await decodeFileToDrawable(file);
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(drawable, 0, 0);
+        return canvas;
+      } finally {
+        cleanup();
+      }
+    } catch (err) {
+      // As 4 estratégias já rodaram nesta chamada; só vale tentar de novo se
+      // for mesmo o navegador ainda buscando os dados por trás de um "arquivo
+      // prometido" (ex.: miniatura de print arrastada no Mac antes de salvar)
+      // — isso pode levar alguns segundos, então esperamos cada vez mais.
+      if (attempt >= CANVAS_RETRY_DELAYS_MS.length) throw err;
+      if (ocrStatus) ocrStatus.textContent = "Ainda preparando a imagem, aguarde...";
+      await sleep(CANVAS_RETRY_DELAYS_MS[attempt]);
+      return fileToCanvas(file, attempt + 1);
+    }
+  }
+
+  // Gera uma versão tratada (ampliada + preto e branco) da imagem, como canvas.
+  // Números pequenos (como os centavos sobrescritos) ficam bem mais legíveis.
+  async function fileToProcessedCanvas(file) {
+    const { drawable, width: w, height: h, cleanup } = await decodeFileToDrawable(file);
+    try {
+      // Amplia SÓ imagens pequenas; nunca aumenta imagens já grandes
+      // (evita um canvas gigante que trava o navegador e quebra o leitor).
+      let scale = Math.max(1, Math.min(6, 1200 / Math.max(1, w)));
+      let dw = Math.round(w * scale);
+      let dh = Math.round(h * scale);
+      // Limite de segurança na área total (reduz se passar disso).
+      const MAX_PX = 3000000;
+      if (dw * dh > MAX_PX) {
+        const k = Math.sqrt(MAX_PX / (dw * dh));
+        dw = Math.round(dw * k);
+        dh = Math.round(dh * k);
+      }
+      const pad = 30;
+      const canvas = document.createElement("canvas");
+      canvas.width = dw + pad * 2;
+      canvas.height = dh + pad * 2;
+      const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      // margem branca em volta ajuda o leitor a isolar o texto
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(drawable, pad, pad, dw, dh);
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const d = imgData.data;
+      // Binariza (preto e branco puro) usando a luminância média como corte —
+      // isso remove o "serrilhado" e ruído que fazem o OCR inventar dígitos.
+      let sum = 0;
+      const px = d.length / 4;
+      for (let i = 0; i < d.length; i += 4) {
+        sum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      }
+      const mean = sum / px;
+      let whites = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        const g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        const v = g > mean ? 255 : 0;
+        if (v === 255) whites++;
+        d[i] = d[i + 1] = d[i + 2] = v;
+      }
+      // Garante texto escuro sobre fundo claro (inverte se o fundo era escuro).
+      if (whites < px / 2) {
+        for (let i = 0; i < d.length; i += 4) {
+          const v = 255 - d[i];
+          d[i] = d[i + 1] = d[i + 2] = v;
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
+      return canvas;
+    } finally {
+      cleanup();
+    }
+  }
+
+  // Roda o OCR (API simples do Tesseract, que funciona bem via CDN).
+  async function ocrText(image) {
+    // Passar um canvas direto pro Tesseract parece evitar o FileReader, mas
+    // por dentro ele faz canvas.toBlob() e lê ESSE blob com o mesmo
+    // FileReader.readAsArrayBuffer que falha com "Code=0" — ou seja, só
+    // adia o problema. O único caminho que de fato não usa FileReader é uma
+    // string base64 (data URL): aí ele decodifica com atob() puro.
+    const source = image instanceof HTMLCanvasElement ? image.toDataURL("image/png") : image;
+    const { data } = await Tesseract.recognize(source, "por", {
+      logger: (m) => {
+        if (m.status === "recognizing text") {
+          ocrStatus.textContent = `Lendo o print... ${Math.round(m.progress * 100)}%`;
+        }
+      },
+    });
+    return data;
+  }
+
+  // Extrai o preço usando o TAMANHO e a POSIÇÃO das palavras detectadas: os
+  // reais são o maior número da imagem; os centavos, um número curto (2 dígitos)
+  // menor e à direita. Dígitos soltos e pequenos (ruído) são ignorados.
+  function priceFromWords(words) {
+    const nums = [];
+    for (const w of words || []) {
+      const text = w.text || "";
+      const digits = text.replace(/[^\d.]/g, "");
+      if (!/\d/.test(digits)) continue;
+      if (typeof w.confidence === "number" && w.confidence < 40) continue;
+      const bb = w.bbox || {};
+      nums.push({
+        digits,
+        hasComma: /,/.test(text),
+        x0: bb.x0 || 0,
+        x1: bb.x1 || 0,
+        h: (bb.y1 || 0) - (bb.y0 || 0),
+      });
+    }
+    if (!nums.length) return null;
+
+    // reais = maior número (por altura) que seja um inteiro limpo (sem vírgula).
+    // Se o número já tiver vírgula, é um preço completo -> deixamos o regex tratar.
+    const reaisCand = nums
+      .filter((n) => !n.hasComma && /^\d{1,3}(\.\d{3})*$/.test(n.digits))
+      .sort((a, b) => b.h - a.h)[0];
+    if (!reaisCand) return null;
+
+    // centavos = número de 2 dígitos, menor e à direita dos reais (sobrescrito).
+    const centsCand = nums
+      .filter(
+        (n) =>
+          n !== reaisCand &&
+          !n.hasComma &&
+          /^\d{2}$/.test(n.digits) &&
+          n.x0 >= reaisCand.x1 - reaisCand.h * 0.6 &&
+          n.h <= reaisCand.h * 0.85
+      )
+      .sort((a, b) => a.x0 - b.x0)[0];
+
+    // Só confiamos nesse método quando há mesmo os centavos sobrescritos;
+    // caso contrário, o leitor por texto (regex) decide.
+    if (!centsCand) return null;
+
+    const reais = reaisCand.digits.replace(/\./g, "");
+    const reaisFmt = reais.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+    return `R$ ${reaisFmt},${centsCand.digits}`;
+  }
+
+  // O maior número (2+ dígitos) entre as palavras detectadas — mesmo critério
+  // usado para achar os "reais" em priceFromWords, mas aqui só precisamos da
+  // posição (bbox), então funciona mesmo se o texto vier com lixo colado
+  // (ex.: um "R$163”" onde o Tesseract confundiu um caractere qualquer).
+  function findMainNumberWord(words) {
+    let best = null;
+    for (const w of words || []) {
+      const digits = (w.text || "").replace(/[^\d]/g, "");
+      if (digits.length < 2) continue;
+      if (typeof w.confidence === "number" && w.confidence < 40) continue;
+      const bb = w.bbox || {};
+      const h = (bb.y1 || 0) - (bb.y0 || 0);
+      if (!best || h > best.h) best = { bbox: bb, h };
+    }
+    return best;
+  }
+
+  // Centavos sobrescritos (ex.: "R$163⁴⁰") costumam ser lidos como ruído pelo
+  // Tesseract na passada normal — ele monta as linhas de texto assumindo uma
+  // única base, e os dígitos pequenos e elevados ficam fora dela. Em vez de
+  // tentar adivinhar configurações que resolvam isso na imagem inteira,
+  // recorta especificamente a zona onde os centavos sobrescritos aparecem
+  // (à direita e por cima do número principal), amplia bastante e lê só essa
+  // fatia isolada — bem mais fácil pro leitor. `source` já é um canvas (saída
+  // de fileToCanvas/fileToProcessedCanvas), então o recorte também é um
+  // canvas — sem Blob, sem depender do FileReader do Tesseract. Qualquer
+  // falha aqui é silenciosa: na pior das hipóteses, ficamos com o valor que
+  // já tínhamos.
+  async function ocrSuperscriptCents(source, bbox) {
+    if (!bbox || !source) return null;
+    try {
+      const wordH = bbox.y1 - bbox.y0;
+      if (!wordH || wordH < 4) return null;
+
+      const cropX = Math.max(0, bbox.x1 - wordH * 0.6);
+      const cropY = Math.max(0, bbox.y0 - wordH * 0.5);
+      const cropW = source.width - cropX;
+      const cropH = wordH * 1.1;
+      if (cropW < 4 || cropH < 4) return null;
+
+      const SCALE = 8;
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(cropW * SCALE));
+      canvas.height = Math.max(1, Math.round(cropH * SCALE));
+      const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(source, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
+
+      // Data URL, não o canvas em si — ver o comentário em ocrText() sobre
+      // por que passar um canvas direto ainda cai no FileReader problemático.
+      const { data } = await Tesseract.recognize(canvas.toDataURL("image/png"), "eng", {
+        tessedit_char_whitelist: "0123456789",
+      });
+
+      // Mesmo com a lista de caracteres restrita a dígitos, o leitor às vezes
+      // ainda solta algum símbolo solto (aspas, apóstrofo) — por isso ignoramos
+      // qualquer coisa que não seja dígito e exigimos que sobrem exatamente 2.
+      // Menos que isso é "não achei nada"; mais que isso é sinal de que o
+      // recorte pegou parte do número dos reais também, então descartamos.
+      const digitsOnly = (data.text || "").replace(/[^\d]/g, "");
+      return digitsOnly.length === 2 ? digitsOnly : null;
+    } catch (err) {
+      console.warn("Leitura de centavos sobrescritos falhou (ignorado):", err);
+      return null;
+    }
+  }
+
+  // Alguns jeitos de arrastar um arquivo (ex.: soltar direto a miniatura de
+  // um print recém-tirado no Mac, sem ter salvado em nenhuma pasta) não dão
+  // ao navegador um MIME type junto — "file.type" vem como string vazia
+  // mesmo sendo uma imagem de verdade. Só rejeitamos quando o tipo indicado
+  // é explicitamente outra coisa; sem tipo nenhum, deixamos o decodificador
+  // (que tenta várias formas de ler) decidir se dá pra abrir ou não.
+  function looksLikeImageFile(file) {
+    if (file.type) return file.type.startsWith("image/");
+    return true;
+  }
+
+  // Lê o preço de uma imagem (arquivo, colada ou arrastada).
+  async function runPriceOcr(file) {
+    if (!file || !ocrStatus) return;
+
+    if (!looksLikeImageFile(file)) {
+      ocrStatus.classList.add("error");
+      ocrStatus.textContent = "Isso não parece uma imagem. Tente um print.";
+      return;
+    }
+    if (typeof Tesseract === "undefined") {
+      ocrStatus.classList.add("error");
+      ocrStatus.textContent = "Leitor de imagem indisponível. Verifique sua conexão.";
+      return;
+    }
+
+    showOcrThumb(file);
+    ocrStatus.classList.remove("error");
+    ocrStatus.textContent = "Lendo o print...";
+
+    try {
+      // 1ª passada: imagem ORIGINAL, desenhada num canvas e depois convertida
+      // pra data URL (ver ocrText) — evita o FileReader que causa "File could
+      // not be read! Code=0". fileToCanvas() já tenta de novo por conta
+      // própria algumas vezes; NÃO caímos para o arquivo bruto se ainda assim
+      // falhar, porque isso levaria de volta ao mesmo FileReader problemático.
+      let source;
+      try {
+        source = await fileToCanvas(file);
+      } catch (err) {
+        ocrStatus.classList.add("error");
+        ocrStatus.textContent =
+          "Não consegui ler essa imagem ainda (comum ao arrastar direto a miniatura do print, no Mac). Espere um instante e tente de novo, ou salve o print e selecione o arquivo.";
+        console.error("Falha ao carregar a imagem para OCR:", err);
+        return;
+      }
+      let data = await ocrText(source);
+      let found = priceFromWords(data.words) || findPriceInText(data.text || "");
+
+      // 2ª passada: versão tratada (ampliada + preto e branco), também como
+      // canvas, para melhorar a leitura de preços pequenos/estilizados. Se
+      // der qualquer erro aqui, ignoramos e ficamos com o resultado da 1ª.
+      if (!found) {
+        try {
+          const processed = await fileToProcessedCanvas(file);
+          source = processed;
+          data = await ocrText(processed);
+          found = priceFromWords(data.words) || findPriceInText(data.text || "");
+        } catch (err) {
+          console.warn("Passada com imagem tratada falhou:", err);
+        }
+      }
+
+      // Um preço "só em reais" (",00") é ambíguo: pode ser um preço redondo de
+      // verdade, ou pode ser um "R$163⁴⁰" onde os centavos sobrescritos foram
+      // ignorados pelo leitor. Sempre vale conferir a zona de sobrescrito antes
+      // de aceitar ",00" — se não houver nada lá, o resultado não muda.
+      if (found && /,00$/.test(found)) {
+        const mainWord = findMainNumberWord(data.words);
+        if (mainWord) {
+          const cents = await ocrSuperscriptCents(source, mainWord.bbox);
+          if (cents) found = found.replace(/,00$/, `,${cents}`);
+        }
+      }
+
+      if (found) {
+        priceInput.value = found;
+        ocrStatus.classList.remove("error");
+        ocrStatus.textContent = `Preço detectado: ${found}. Confira antes de salvar.`;
+      } else {
+        ocrStatus.classList.add("error");
+        ocrStatus.textContent =
+          "Não encontrei um preço. Tente recortar só a área do preço e enviar de novo, ou digite manualmente.";
+      }
+    } catch (err) {
+      ocrStatus.classList.add("error");
+      // mostra um resumo do erro para ajudar no diagnóstico, se acontecer de novo
+      const detalhe = err && err.message ? ` (${String(err.message).slice(0, 80)})` : "";
+      ocrStatus.textContent = `Não consegui ler o print${detalhe}. Tente uma imagem mais nítida.`;
+      console.error("Erro no OCR do preço:", err);
+    }
+  }
+
+  // 1) Selecionar um arquivo do computador
+  if (priceOcrInput) {
+    priceOcrInput.addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (file) runPriceOcr(file);
+      e.target.value = "";
+    });
+  }
+
+  // 2) Arrastar e soltar uma imagem na área
+  if (ocrDropzone) {
+    ["dragenter", "dragover"].forEach((evt) =>
+      ocrDropzone.addEventListener(evt, (e) => {
+        e.preventDefault();
+        ocrDropzone.classList.add("dragover");
+      })
+    );
+    ["dragleave", "dragend", "drop"].forEach((evt) =>
+      ocrDropzone.addEventListener(evt, () => ocrDropzone.classList.remove("dragover"))
+    );
+    ocrDropzone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      let file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+
+      // Algumas fontes de arraste (ex.: miniatura de print no Mac) só
+      // preenchem "items", não "files" — tenta esse caminho também.
+      if (!file && e.dataTransfer && e.dataTransfer.items) {
+        for (const item of e.dataTransfer.items) {
+          if (item.kind === "file") {
+            const fromItem = item.getAsFile();
+            if (fromItem) {
+              file = fromItem;
+              break;
+            }
+          }
+        }
+      }
+
+      if (file) {
+        runPriceOcr(file);
+      } else if (ocrStatus) {
+        ocrStatus.classList.add("error");
+        ocrStatus.textContent =
+          "Não consegui reconhecer isso como um arquivo de imagem. Tente selecionar o print pelo botão, ou colar com Cmd+V.";
+      }
+    });
+  }
+
+  // 3) Colar uma imagem (⌘V / Ctrl+V) enquanto o modal está aberto
+  document.addEventListener("paste", (e) => {
+    if (!modalOverlay || modalOverlay.hidden) return;
+    const items = (e.clipboardData && e.clipboardData.items) || [];
+    for (const item of items) {
+      if (item.type && item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          runPriceOcr(file);
+          break;
+        }
+      }
+    }
   });
 
   addForm.addEventListener("submit", (e) => {
@@ -996,4 +1552,74 @@
   // come up empty unless the app genuinely has zero items.
 
   renderAll();
+
+  // ---------- Nuvem: carregar dados e sincronizar em tempo real ----------
+
+  // Aplica na tela um registro vindo da nuvem (itens + categorias).
+  function applyBoard(row) {
+    if (!row) return;
+    if (Array.isArray(row.items)) items = row.items;
+    if (Array.isArray(row.categories) && row.categories.length) CATEGORIES = row.categories;
+    renderCategorySelect();
+    renderAll();
+    if (typeof renderCategoryManageList === "function") {
+      try {
+        renderCategoryManageList();
+      } catch (err) {
+        /* a lista de categorias só existe quando o modal está aberto */
+      }
+    }
+  }
+
+  async function loadBoard() {
+    if (!window.sb) return;
+    const { data, error } = await window.sb.from("board").select("*").eq("id", BOARD_ID).single();
+    if (error) {
+      console.error("Erro ao carregar da nuvem:", error);
+      return;
+    }
+    applyBoard(data);
+  }
+
+  let subscribed = false;
+  function subscribeBoard() {
+    if (!window.sb || subscribed) return;
+    subscribed = true;
+    window.sb
+      .channel("board-shared")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "board", filter: `id=eq.${BOARD_ID}` },
+        (payload) => {
+          const row = payload.new;
+          if (!row) return;
+          // Ignora se for igual ao que já temos (provavelmente o eco do nosso
+          // próprio salvamento) — evita re-render desnecessário.
+          const sameItems = JSON.stringify(row.items) === JSON.stringify(items);
+          const sameCats = JSON.stringify(row.categories) === JSON.stringify(CATEGORIES);
+          if (sameItems && sameCats) return;
+          applyBoard(row);
+        }
+      )
+      .subscribe();
+  }
+
+  async function initCloud() {
+    if (!window.sb) return;
+    const { data } = await window.sb.auth.getSession();
+    if (data && data.session) {
+      await loadBoard();
+      subscribeBoard();
+    }
+    // Recarrega os dados quando o login acontecer nesta mesma aba.
+    window.sb.auth.onAuthStateChange((event, session) => {
+      if (session) {
+        loadBoard();
+        subscribeBoard();
+      }
+    });
+  }
+
+  // Só ativa a nuvem para a conta conjunta; contas locais nem tocam o Supabase.
+  if (isCloud) initCloud();
 })();
