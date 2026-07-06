@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude doctor:*)",
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(pkill -f \"http.server 8934\")",
+      "Bash(rm -rf /private/tmp/claude-503/-Users-rebecahumasi-Downloads-site-git/9425b885-cc80-4a53-8817-1cd7fc0d363b/scratchpad/pw-test)"
+    ]
+  }
+}

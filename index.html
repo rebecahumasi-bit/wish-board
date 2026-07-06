@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Lista de Produtos</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-row">
+    <nav class="categories" aria-label="Categorias">
+      <button type="button" class="cat-btn" id="todasBtn">
+        <span>Todas</span>
+        <span class="cat-arrow" aria-hidden="true">▾</span>
+      </button>
+    </nav>
+
+    <div class="summary">
+      <span class="summary-item" id="itemCount">0 itens</span>
+      <span class="summary-sep">·</span>
+      <span class="summary-item" id="itemTotal">R$ 0,00</span>
+      <button class="btn btn-primary" id="openAddBtn" type="button">+ Adicionar</button>
+      <button class="btn" id="exportBtn" type="button">Exportar</button>
+      <label class="btn" for="importInput">Importar</label>
+      <input type="file" id="importInput" accept="application/json" hidden />
+    </div>
+  </div>
+
+  <div class="cat-panel" id="catPanel" hidden>
+    <nav class="subcat-nav" id="subcatNav" aria-label="Filtrar por categoria"></nav>
+    <div class="grid" id="catGrid"></div>
+    <p class="empty-state" id="catEmpty">Nenhum item nesta categoria ainda.</p>
+  </div>
+</header>
+
+<p class="hint" id="hint">Selecione uma categoria acima para ver os itens.</p>
+
+<div class="modal-overlay" id="modalOverlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-header">
+      <h3 id="modalTitle">Adicionar item</h3>
+      <button class="modal-close" id="closeModalBtn" type="button" aria-label="Fechar">&times;</button>
+    </div>
+
+    <form id="addForm" class="modal-body">
+      <label class="field">
+        <span>Link do produto</span>
+        <div class="field-row">
+          <input type="url" id="urlInput" placeholder="https://www.amazon.com.br/..." required />
+          <button type="button" class="btn" id="fetchBtn">Buscar dados</button>
+        </div>
+      </label>
+
+      <p class="fetch-status" id="fetchStatus"></p>
+
+      <div class="preview-box" id="previewBox" hidden>
+        <img id="previewImage" alt="" />
+        <div class="preview-info">
+          <strong id="previewTitle"></strong>
+          <span id="previewDomain"></span>
+        </div>
+      </div>
+
+      <label class="field">
+        <span>Título</span>
+        <input type="text" id="titleInput" placeholder="Título do produto" required />
+      </label>
+
+      <label class="field">
+        <span>Descrição</span>
+        <textarea id="descInput" rows="2" placeholder="Descrição curta (opcional)"></textarea>
+      </label>
+
+      <label class="field">
+        <span>URL da imagem</span>
+        <input type="url" id="imageInput" placeholder="https://..." />
+      </label>
+
+      <div class="field-group">
+        <label class="field">
+          <span>Categoria</span>
+          <select id="categoryInput" required></select>
+        </label>
+
+        <label class="field">
+          <span>Preço (R$)</span>
+          <input type="number" id="priceInput" min="0" step="0.01" placeholder="0,00" required />
+        </label>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn" id="cancelBtn">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Adicionar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<template id="cardTemplate">
+  <article class="card">
+    <div class="card-image-wrap">
+      <img class="card-image" alt="" loading="lazy" />
+    </div>
+    <div class="card-body">
+      <div class="card-domain"></div>
+      <h3 class="card-title"></h3>
+      <p class="card-desc"></p>
+      <div class="card-footer">
+        <span class="card-price"></span>
+        <a class="card-link" target="_blank" rel="noopener noreferrer">Ver produto ↗</a>
+      </div>
+      <div class="card-controls">
+        <button class="card-move-up" type="button" title="Mover para cima">▲</button>
+        <button class="card-move-down" type="button" title="Mover para baixo">▼</button>
+        <button class="card-remove" type="button" title="Remover">Excluir</button>
+      </div>
+    </div>
+  </article>
+</template>
+
+<script src="script.js"></script>
+</body>
+</html>
