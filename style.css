@@ -127,10 +127,6 @@ body {
   padding: 16px;
 }
 
-.cat-panel[hidden] {
-  display: none;
-}
-
 .subcat-nav {
   display: flex;
   flex-wrap: wrap;
@@ -160,18 +156,6 @@ body {
   color: var(--accent-text);
 }
 
-.hint {
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  padding: 40px 16px;
-  margin: 0;
-}
-
-.hint[hidden] {
-  display: none;
-}
-
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -191,6 +175,7 @@ body {
 /* ---------- Card ---------- */
 
 .card {
+  position: relative;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   display: flex;
@@ -274,6 +259,8 @@ body {
 
 .card-move-up,
 .card-move-down,
+.card-toggle-total,
+.card-drag,
 .card-remove {
   border: 1px solid var(--border);
   background: var(--bg);
@@ -284,14 +271,47 @@ body {
 }
 
 .card-move-up:hover,
-.card-move-down:hover {
+.card-move-down:hover,
+.card-toggle-total:hover {
   color: var(--text);
+}
+
+.card-toggle-total {
+  display: inline-flex;
+  align-items: center;
+}
+
+.card-drag {
+  cursor: grab;
+  letter-spacing: -1px;
+}
+
+.card-drag:active {
+  cursor: grabbing;
 }
 
 .card-remove {
   margin-left: auto;
   color: var(--danger);
   border-color: var(--danger);
+}
+
+.card.dragging {
+  opacity: 0.5;
+}
+
+.card.drag-over {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.card--excluded::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #808080;
+  opacity: 0.2;
+  pointer-events: none;
 }
 
 /* ---------- Modal ---------- */
@@ -452,6 +472,95 @@ body {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 4px;
+}
+
+/* ---------- Login / Auth ---------- */
+
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.auth-overlay[hidden] {
+  display: none;
+}
+
+.auth-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  width: 100%;
+  max-width: 340px;
+  padding: 26px 24px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.auth-brand {
+  margin: 0;
+  font-size: 1.4rem;
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+.auth-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.auth-error {
+  margin: 0;
+  min-height: 1em;
+  font-size: 0.8rem;
+  color: var(--danger);
+  text-align: center;
+}
+
+.auth-error:empty {
+  display: none;
+}
+
+.auth-submit {
+  margin-top: 4px;
+  padding: 9px 12px;
+  font-size: 0.9rem;
+}
+
+.auth-toggle {
+  margin: 2px 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.auth-link {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0 2px;
+  text-decoration: underline;
+}
+
+.summary-user {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* O botão Sair e o nome só aparecem quando alguém está logado. */
+body:not(.logged-in) #logoutBtn,
+body:not(.logged-in) .summary-user {
+  display: none;
 }
 
 /* ---------- Responsive ---------- */

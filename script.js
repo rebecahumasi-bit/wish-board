@@ -1,7 +1,14 @@
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "productWishlist:items:v2";
+  // Só roda o app se alguém estiver logado. A tela de login (auth.js) cuida
+  // do resto; sem usuário, não montamos nada. Cada pessoa tem seus próprios
+  // itens, guardados numa chave separada por usuário.
+  const SESSION_KEY = "wishboard:currentUser";
+  const currentUser = localStorage.getItem(SESSION_KEY);
+  if (!currentUser) return;
+
+  const STORAGE_KEY = "productWishlist:items:v2:" + currentUser;
   const MICROLINK_ENDPOINT = "https://api.microlink.io/";
   const FETCH_TIMEOUT_MS = 8000;
 
@@ -151,14 +158,15 @@
   const cardTemplate = document.getElementById("cardTemplate");
   const itemCountEl = document.getElementById("itemCount");
   const itemTotalEl = document.getElementById("itemTotal");
-  const catPanel = document.getElementById("catPanel");
   const catGrid = document.getElementById("catGrid");
-  const hint = document.getElementById("hint");
 
-  let panelOpen = false;
   // Empty set = "Todas" (no filter, show everything). Any keys present = show
   // the union of those categories; picking more than one is allowed.
   let selectedFilters = new Set();
+
+  function isIncludedInTotal(item) {
+    return item.includeInTotal !== false;
+  }
 
   function buildCard(item, showMove) {
     const node = cardTemplate.content.firstElementChild.cloneNode(true);
@@ -171,6 +179,7 @@
     const linkEl = node.querySelector(".card-link");
     const upBtn = node.querySelector(".card-move-up");
     const downBtn = node.querySelector(".card-move-down");
+    const dragBtn = node.querySelector(".card-drag");
 
     const domain = getDomain(item.url);
     img.src = item.image || faviconFor(domain);
@@ -187,10 +196,37 @@
       downBtn.hidden = true;
     }
 
+    setCardIncludedVisual(node, isIncludedInTotal(item));
+
+    // Native drag-and-drop lets you start a drag from anywhere on a
+    // draggable element — arm it only while the handle is actually pressed
+    // so the rest of the card (links, buttons) stays click-only.
+    const arm = () => {
+      node.draggable = true;
+    };
+    const disarm = () => {
+      node.draggable = false;
+    };
+    dragBtn.addEventListener("mousedown", arm);
+    dragBtn.addEventListener("touchstart", arm, { passive: true });
+    dragBtn.addEventListener("mouseup", disarm);
+    node.addEventListener("dragend", disarm);
+
     return node;
   }
 
-  // Inner filter row shown inside the dropdown: "Todas" plus every category,
+  function setCardIncludedVisual(cardNode, included) {
+    // The `hidden` IDL property doesn't reliably reflect to the attribute (or
+    // affect rendering) on real SVG elements in every browser — toggle the
+    // inline style directly instead, which works for any element type.
+    const eyeIcon = cardNode.querySelector(".icon-eye");
+    const eyeOffIcon = cardNode.querySelector(".icon-eye-off");
+    eyeIcon.style.display = included ? "" : "none";
+    eyeOffIcon.style.display = included ? "none" : "";
+    cardNode.classList.toggle("card--excluded", !included);
+  }
+
+  // Inner filter row shown below the top bar: "Todas" plus every category,
   // always — a category with no items yet still gets a button; picking it
   // just shows the empty state. More than one category can be active at once;
   // "Todas" means "nothing selected", so it clears the rest when clicked.
@@ -207,26 +243,23 @@
       btn.textContent = cat.label;
       subcatNav.appendChild(btn);
     });
+
+    todasBtn.classList.toggle("active", selectedFilters.size === 0);
+  }
+
+  // The list currently shown in the canvas, in display order. Sorting by a
+  // single shared `order` field (instead of switching sort keys per view)
+  // means drag-and-drop and the move arrows both just reposition items
+  // within whichever subset is visible right now — single category,
+  // several at once, or everything under "Todas".
+  function getVisibleItems() {
+    const list = selectedFilters.size === 0 ? [...items] : items.filter((item) => selectedFilters.has(item.category));
+    return list.sort((a, b) => (a.order || 0) - (b.order || 0));
   }
 
   function renderCategoryPanel() {
-    if (!panelOpen) {
-      catGrid.innerHTML = "";
-      return;
-    }
-
-    let catItems;
     const showMove = selectedFilters.size === 1;
-    if (selectedFilters.size === 0) {
-      catItems = [...items].sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
-    } else if (showMove) {
-      const onlyKey = [...selectedFilters][0];
-      catItems = items.filter((item) => item.category === onlyKey).sort((a, b) => (a.order || 0) - (b.order || 0));
-    } else {
-      catItems = items
-        .filter((item) => selectedFilters.has(item.category))
-        .sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
-    }
+    const catItems = getVisibleItems();
 
     catGrid.innerHTML = "";
     catItems.forEach((item) => catGrid.appendChild(buildCard(item, showMove)));
@@ -234,7 +267,10 @@
 
   function updateSummary() {
     itemCountEl.textContent = `${items.length} ${items.length === 1 ? "item" : "itens"}`;
-    const total = items.reduce((sum, item) => sum + (Number(item.price) || 0), 0);
+    const total = items.reduce(
+      (sum, item) => sum + (isIncludedInTotal(item) ? Number(item.price) || 0 : 0),
+      0
+    );
     itemTotalEl.textContent = formatPrice(total);
   }
 
@@ -244,32 +280,18 @@
     renderCategoryPanel();
   }
 
-  // ---------- Dropdown open/close ("Todas" is the single trigger; categories live inside it) ----------
+  // ---------- Filters ----------
+  // The canvas is always visible — there is no collapsed/empty state other
+  // than "this filter genuinely has no items". "Todas" just clears whatever
+  // categories are selected, same as picking "Todas" inside the filter row.
 
-  function openPanel() {
-    panelOpen = true;
+  function resetToAll() {
     selectedFilters.clear();
-    catPanel.hidden = false;
-    hint.hidden = true;
-    todasBtn.classList.add("active");
     renderSubcatNav();
     renderCategoryPanel();
   }
 
-  function closePanel() {
-    panelOpen = false;
-    catPanel.hidden = true;
-    hint.hidden = false;
-    todasBtn.classList.remove("active");
-  }
-
-  todasBtn.addEventListener("click", () => {
-    if (panelOpen) {
-      closePanel();
-    } else {
-      openPanel();
-    }
-  });
+  todasBtn.addEventListener("click", resetToAll);
 
   subcatNav.addEventListener("click", (e) => {
     const btn = e.target.closest(".subcat-btn");
@@ -286,23 +308,6 @@
 
     renderSubcatNav();
     renderCategoryPanel();
-  });
-
-  document.addEventListener("click", (e) => {
-    if (!panelOpen) return;
-    // Use composedPath() instead of e.target.closest(): card actions (move/remove)
-    // rebuild catGrid synchronously while this click is still bubbling, which would
-    // detach e.target and make closest() miss the still-valid ancestor chain.
-    const path = e.composedPath();
-    const insideRelevantArea = path.some(
-      (el) => el.classList && (el.classList.contains("topbar") || el.id === "modalOverlay")
-    );
-    if (insideRelevantArea) return;
-    closePanel();
-  });
-
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && panelOpen) closePanel();
   });
 
   // ---------- Card actions (remove, move) ----------
@@ -333,6 +338,7 @@
     const removeBtn = e.target.closest(".card-remove");
     const upBtn = e.target.closest(".card-move-up");
     const downBtn = e.target.closest(".card-move-down");
+    const toggleBtn = e.target.closest(".card-toggle-total");
     const card = e.target.closest(".card");
     if (!card) return;
     const id = card.dataset.id;
@@ -346,7 +352,72 @@
       moveItem(id, -1);
     } else if (downBtn) {
       moveItem(id, 1);
+    } else if (toggleBtn) {
+      const item = items.find((i) => i.id === id);
+      if (!item) return;
+      item.includeInTotal = !isIncludedInTotal(item);
+      saveItems(items);
+      setCardIncludedVisual(card, isIncludedInTotal(item));
+      updateSummary();
     }
+  });
+
+  // ---------- Drag-and-drop reordering ----------
+  // Dragging repositions the item within whichever list is currently visible
+  // (one category, several, or "Todas") by nudging just its `order` value
+  // between its new neighbors — nothing outside that visible set is touched.
+
+  let draggedId = null;
+
+  catGrid.addEventListener("dragstart", (e) => {
+    const card = e.target.closest(".card");
+    if (!card) return;
+    draggedId = card.dataset.id;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", draggedId);
+    card.classList.add("dragging");
+  });
+
+  catGrid.addEventListener("dragend", (e) => {
+    const card = e.target.closest(".card");
+    if (card) card.classList.remove("dragging");
+    catGrid.querySelectorAll(".drag-over").forEach((el) => el.classList.remove("drag-over"));
+    draggedId = null;
+  });
+
+  catGrid.addEventListener("dragover", (e) => {
+    if (!draggedId) return;
+    e.preventDefault();
+    const overCard = e.target.closest(".card");
+    catGrid.querySelectorAll(".drag-over").forEach((el) => el.classList.remove("drag-over"));
+    if (overCard && overCard.dataset.id !== draggedId) {
+      overCard.classList.add("drag-over");
+    }
+  });
+
+  catGrid.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const targetCard = e.target.closest(".card");
+    catGrid.querySelectorAll(".drag-over").forEach((el) => el.classList.remove("drag-over"));
+    if (!draggedId || !targetCard || targetCard.dataset.id === draggedId) return;
+
+    const list = getVisibleItems();
+    const fromIndex = list.findIndex((item) => item.id === draggedId);
+    const toIndex = list.findIndex((item) => item.id === targetCard.dataset.id);
+    if (fromIndex === -1 || toIndex === -1) return;
+
+    const [moved] = list.splice(fromIndex, 1);
+    list.splice(toIndex, 0, moved);
+
+    const newIndex = list.indexOf(moved);
+    const prev = list[newIndex - 1];
+    const next = list[newIndex + 1];
+    if (prev && next) moved.order = (prev.order + next.order) / 2;
+    else if (prev) moved.order = prev.order + 1;
+    else if (next) moved.order = next.order - 1;
+
+    saveItems(items);
+    renderCategoryPanel();
   });
 
   // ---------- Modal ----------
@@ -431,6 +502,10 @@
 
     const category = CATEGORY_KEYS.has(categoryInput.value) ? categoryInput.value : "geral";
 
+    // New items sort to the top of whatever list they land in — one less
+    // than the current lowest order value, so ascending sort puts it first.
+    const lowestOrder = items.length ? Math.min(...items.map((i) => i.order || 0)) : Date.now();
+
     const item = {
       id: uid(),
       url,
@@ -440,23 +515,19 @@
       category,
       price,
       addedAt: Date.now(),
-      order: Date.now(),
+      order: lowestOrder - 1,
+      includeInTotal: true,
     };
 
     items.push(item);
     saveItems(items);
 
-    if (!panelOpen) {
-      panelOpen = true;
-      selectedFilters = new Set([category]);
-      catPanel.hidden = false;
-      hint.hidden = true;
-      todasBtn.classList.add("active");
-    } else if (selectedFilters.size > 0) {
+    // If a filter is active and doesn't already include the new item's
+    // category, add it so the new item is visible; "Todas" (empty selection)
+    // just stays put since the new item already joins the aggregate list.
+    if (selectedFilters.size > 0) {
       selectedFilters.add(category);
     }
-    // else: panel already open on "Todas" (empty selection stays put, new item
-    // just joins the aggregate list).
 
     renderSubcatNav();
     renderCategoryPanel();
@@ -504,6 +575,7 @@
             price: Number(item.price) || 0,
             addedAt: item.addedAt || Date.now(),
             order: Number(item.order) || Number(item.addedAt) || Date.now() + index,
+            includeInTotal: item.includeInTotal !== false,
           }));
 
         items = [...items, ...merged];
@@ -520,6 +592,8 @@
   });
 
   // ---------- Init ----------
+  // The canvas always starts showing every item ("Todas") — it should never
+  // come up empty unless the app genuinely has zero items.
 
   renderAll();
 })();
