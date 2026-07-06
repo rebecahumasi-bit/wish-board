@@ -225,6 +225,157 @@
     }
   }
 
+  // ---------- Title fallback chain: OG metadata -> URL slug -> domain name ----------
+  // Note on scope: turning "ASPIRADOR-PAS4000V-..." into "Aspirador de Pó..."
+  // needs real product knowledge (knowing "aspirador" commonly means "aspirador
+  // de pó" in PT-BR) — that's semantic inference, not string parsing, and this
+  // is a static site with no language model to call. What follows is the best
+  // *deterministic* approximation: strip tracking/id noise, keep real words and
+  // model-code tokens, and title-case the result.
+
+  // A blocked/antibot page often "succeeds" but hands back just the brand name
+  // (or a generic challenge-page title) instead of the actual product — treat
+  // that as if metadata had failed so the URL-based fallback kicks in instead.
+  const GENERIC_TITLE_PATTERNS = new Set([
+    "mercado livre",
+    "mercado libre",
+    "amazon.com",
+    "amazon.com.br",
+    "amazon",
+    "shopee",
+    "aliexpress.com",
+    "aliexpress",
+    "magazine luiza",
+    "americanas.com",
+    "americanas",
+    "just a moment...",
+    "attention required! | cloudflare",
+    "access denied",
+    "robot check",
+  ]);
+
+  function looksGenericTitle(title) {
+    if (!title || !title.trim()) return true;
+    return GENERIC_TITLE_PATTERNS.has(title.trim().toLowerCase());
+  }
+
+  // Path segments that are pure e-commerce routing noise, never product words.
+  const URL_NOISE_SEGMENTS = new Set([
+    "dp", "gp", "product", "products", "produto", "produtos", "item", "itens",
+    "p", "pd", "sku", "ref", "detail", "details", "d", "ip", "prod", "buy",
+  ]);
+
+  // A pure-digit token (price, quantity, plain numeric id) or a long letter+
+  // digit blob with no vowels (ASIN-like "B088MVWBM9") is noise; a token that
+  // mixes letters and digits AND reads like a word ("PAS4000V") is a model
+  // number worth keeping.
+  function looksLikeIdToken(word) {
+    if (/^\d+$/.test(word)) return true;
+    if (/^[a-z0-9]{6,}$/i.test(word) && /\d/.test(word) && !/[aeiouáéíóúâêôãõ]/i.test(word)) {
+      return true;
+    }
+    return false;
+  }
+
+  function titleCaseWord(word) {
+    if (/[a-z]/i.test(word) && /\d/.test(word)) return word; // model code — keep as-is
+    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+  }
+
+  function titleFromUrlPath(url) {
+    let pathname;
+    try {
+      pathname = decodeURIComponent(new URL(url).pathname);
+    } catch (err) {
+      return "";
+    }
+
+    const words = pathname
+      .split("/")
+      .filter(Boolean)
+      .filter((segment) => !URL_NOISE_SEGMENTS.has(segment.toLowerCase()))
+      .flatMap((segment) => segment.split(/[-_]+/))
+      .filter(Boolean)
+      .filter((word) => !looksLikeIdToken(word))
+      .filter((word) => !URL_NOISE_SEGMENTS.has(word.toLowerCase()))
+      .slice(0, 12); // keep generated titles reasonable even for very long SEO slugs
+
+    return words.length ? words.map(titleCaseWord).join(" ") : "";
+  }
+
+  const DOMAIN_DISPLAY_NAMES = {
+    "amazon.com.br": "Amazon",
+    "amazon.com": "Amazon",
+    "mercadolivre.com.br": "Mercado Livre",
+    "mercadolibre.com": "Mercado Livre",
+    "shopee.com.br": "Shopee",
+    "aliexpress.com": "AliExpress",
+    "magazineluiza.com.br": "Magazine Luiza",
+    "americanas.com.br": "Americanas",
+    "casasbahia.com.br": "Casas Bahia",
+  };
+
+  // Last resort so a title is never left blank: the site's brand name, or the
+  // first label of its domain if we don't recognize it.
+  function domainDisplayName(domain) {
+    if (!domain) return "Produto";
+    const bare = domain.replace(/^www\./, "");
+    if (DOMAIN_DISPLAY_NAMES[bare]) return DOMAIN_DISPLAY_NAMES[bare];
+    const label = bare.split(".")[0];
+    return label ? titleCaseWord(label) : "Produto";
+  }
+
+  function resolveTitle(meta, url) {
+    if (!looksGenericTitle(meta.title)) return meta.title;
+    return titleFromUrlPath(url) || domainDisplayName(getDomain(url));
+  }
+
+  // ---------- Category inference from title/description/URL keywords ----------
+
+  const CATEGORY_KEYWORDS = {
+    limpeza: ["aspirador", "vassoura", "detergente", "sabao", "rodo", "esponja", "desinfetante", "alvejante", "multiuso", "amaciante"],
+    cozinha: ["panela", "frigideira", "liquidificador", "fogao", "forno", "talher", "cozinha", "airfryer", "air fryer", "faca", "batedeira", "cafeteira", "utensilio"],
+    tecnologia: ["celular", "smartphone", "notebook", "computador", "televisao", " tv ", "fone", "airpods", "earbud", "bluetooth", "headset", "mouse", "teclado", "tablet", "camera", "eletronico", "informatica", "carregador", "ssd", "processador", "monitor", "impressora", "roteador", "hd externo"],
+    moveis: ["sofa", "cadeira", "mesa", "cama", "armario", "estante", "guarda-roupa", "guarda roupa", "rack", "poltrona", "colchao", "movel", "moveis"],
+    roupas: ["camisa", "camiseta", "calca", "vestido", "jaqueta", "blusa", "short", "bermuda", "casaco", "moletom", "roupa", "meia", "cueca", "sutia"],
+    "saude-beleza": ["perfume", "maquiagem", "batom", "creme", "shampoo", "condicionador", "hidratante", "protetor solar", "beleza", "cosmetico", "sabonete", "skincare"],
+    escritorio: ["caneta", "caderno", "papel", "grampeador", "papelaria", "impressora", "mochila", "pasta", "escritorio"],
+    automotivo: ["pneu", "oleo motor", "farol", "carro", "moto", "automotivo", "para-choque", "retrovisor"],
+    ferramentas: ["furadeira", "parafusadeira", "chave de fenda", "martelo", "serra", "ferramenta", "alicate", "trena", "parafuso"],
+    jardinagem: ["vaso", "planta", "jardim", "adubo", "mangueira", "regador", "jardinagem", "grama"],
+    pets: ["racao", "coleira", "aquario", "petisco", "cachorro", "gato", " pet "],
+    esporte: ["bicicleta", "bola", "tenis", "halter", "academia", "esporte", "fitness", "corrida"],
+    entretenimento: ["livro", "filme", "musica", "streaming", "quadrinho"],
+    diversao: ["jogo", "brinquedo", "game", "playstation", "xbox", "nintendo", "boneca", "lego", "controle"],
+    banheiro: ["toalha", "chuveiro", "vaso sanitario", "box banheiro", "tapete banheiro", "banheiro"],
+    decoracao: ["quadro", "luminaria", "almofada", "tapete", "decoracao", "vela aromatica", "enfeite"],
+    alimentos: ["cafe", "chocolate", "biscoito", "arroz", "feijao", "alimento", "comida", "bebida", "cerveja", "vinho"],
+  };
+
+  function stripAccents(text) {
+    return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  }
+
+  function inferCategory(text) {
+    const normalized = stripAccents(text).toLowerCase();
+    let bestKey = null;
+    let bestScore = 0;
+
+    for (const [key, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+      if (!isValidCategoryKey(key)) continue; // may have been renamed/deleted by the user
+      let score = 0;
+      for (const kw of keywords) {
+        if (normalized.includes(kw)) score += 1;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        bestKey = key;
+      }
+    }
+
+    return bestScore > 0 ? bestKey : null;
+  }
+
   // ---------- Category select setup (for assigning an item; rebuilt whenever categories change) ----------
 
   const todasBtn = document.getElementById("todasBtn");
@@ -554,6 +705,10 @@
   function openAddModal() {
     editingItemId = null;
     addForm.reset();
+    // reset() picks the select's first option since none of the dynamically
+    // built <option>s carry the `selected` attribute — force the intended
+    // default explicitly instead of leaving it at whatever sorts first.
+    categoryInput.value = PROTECTED_CATEGORY_KEY;
     previewBox.hidden = true;
     modalTitleEl.textContent = "Adicionar item";
     submitItemBtn.textContent = "Adicionar";
@@ -608,18 +763,25 @@
     fetchStatus.textContent = "Buscando dados do produto...";
     fetchBtn.disabled = true;
 
+    let meta = { title: "", description: "", image: "" };
     try {
-      const meta = await fetchMetadata(url);
-      if (meta.title) titleInput.value = meta.title;
-      if (meta.description) descInput.value = meta.description;
-      if (meta.image) imageInput.value = meta.image;
-      updatePreview();
+      meta = await fetchMetadata(url);
     } catch (err) {
-      // Fetch failed — leave whatever fields are still empty for manual entry.
-    } finally {
-      fetchStatus.textContent = "";
-      fetchBtn.disabled = false;
+      // Fetch failed outright — resolveTitle() below still derives something
+      // from the URL itself, so the title never ends up empty.
     }
+
+    titleInput.value = resolveTitle(meta, url);
+    if (meta.description) descInput.value = meta.description;
+    if (meta.image) imageInput.value = meta.image;
+
+    const guessedCategory = inferCategory(`${titleInput.value} ${descInput.value} ${url}`);
+    if (guessedCategory) categoryInput.value = guessedCategory;
+
+    updatePreview();
+
+    fetchStatus.textContent = "";
+    fetchBtn.disabled = false;
   });
 
   [titleInput, imageInput, urlInput].forEach((el) => {
