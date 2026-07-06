@@ -437,6 +437,7 @@
 
   catGrid.addEventListener("click", (e) => {
     const removeBtn = e.target.closest(".card-remove");
+    const editBtn = e.target.closest(".card-edit");
     const upBtn = e.target.closest(".card-move-up");
     const downBtn = e.target.closest(".card-move-down");
     const toggleBtn = e.target.closest(".card-toggle-total");
@@ -449,6 +450,10 @@
       items = items.filter((item) => item.id !== id);
       saveItems(items);
       renderAll();
+    } else if (editBtn) {
+      const item = items.find((i) => i.id === id);
+      if (!item) return;
+      openEditModal(item);
     } else if (upBtn) {
       moveItem(id, -1);
     } else if (downBtn) {
@@ -521,9 +526,11 @@
     renderCategoryPanel();
   });
 
-  // ---------- Modal ----------
+  // ---------- Modal (doubles as both "Adicionar item" and "Editar item") ----------
 
   const modalOverlay = document.getElementById("modalOverlay");
+  const modalTitleEl = document.getElementById("modalTitle");
+  const submitItemBtn = document.getElementById("submitItemBtn");
   const addForm = document.getElementById("addForm");
   const urlInput = document.getElementById("urlInput");
   const fetchBtn = document.getElementById("fetchBtn");
@@ -537,18 +544,41 @@
   const imageInput = document.getElementById("imageInput");
   const priceInput = document.getElementById("priceInput");
 
-  function openModal() {
+  // null while adding a new item; the item's id while editing an existing one.
+  let editingItemId = null;
+
+  function openAddModal() {
+    editingItemId = null;
+    addForm.reset();
+    previewBox.hidden = true;
+    modalTitleEl.textContent = "Adicionar item";
+    submitItemBtn.textContent = "Adicionar";
     modalOverlay.hidden = false;
+  }
+
+  function openEditModal(item) {
+    editingItemId = item.id;
+    urlInput.value = item.url;
+    titleInput.value = item.title;
+    descInput.value = item.description || "";
+    imageInput.value = item.image || "";
+    categoryInput.value = item.category;
+    priceInput.value = formatPrice(item.price);
+    modalTitleEl.textContent = "Editar item";
+    submitItemBtn.textContent = "Salvar";
+    modalOverlay.hidden = false;
+    updatePreview();
   }
 
   function closeModal() {
     modalOverlay.hidden = true;
+    editingItemId = null;
     addForm.reset();
     fetchStatus.textContent = "";
     previewBox.hidden = true;
   }
 
-  document.getElementById("openAddBtn").addEventListener("click", openModal);
+  document.getElementById("openAddBtn").addEventListener("click", openAddModal);
   document.getElementById("closeModalBtn").addEventListener("click", closeModal);
   document.getElementById("cancelBtn").addEventListener("click", closeModal);
   modalOverlay.addEventListener("click", (e) => {
@@ -602,30 +632,44 @@
     if (!url || !title || Number.isNaN(price)) return;
 
     const category = isValidCategoryKey(categoryInput.value) ? categoryInput.value : PROTECTED_CATEGORY_KEY;
+    const description = descInput.value.trim();
+    const image = imageInput.value.trim();
 
-    // New items sort to the top of whatever list they land in — one less
-    // than the current lowest order value, so ascending sort puts it first.
-    const lowestOrder = items.length ? Math.min(...items.map((i) => i.order || 0)) : Date.now();
+    if (editingItemId) {
+      const existing = items.find((i) => i.id === editingItemId);
+      if (!existing) return;
+      existing.url = url;
+      existing.title = title;
+      existing.description = description;
+      existing.image = image;
+      existing.category = category;
+      existing.price = price;
+      saveItems(items);
+    } else {
+      // New items sort to the top of whatever list they land in — one less
+      // than the current lowest order value, so ascending sort puts it first.
+      const lowestOrder = items.length ? Math.min(...items.map((i) => i.order || 0)) : Date.now();
 
-    const item = {
-      id: uid(),
-      url,
-      title,
-      description: descInput.value.trim(),
-      image: imageInput.value.trim(),
-      category,
-      price,
-      addedAt: Date.now(),
-      order: lowestOrder - 1,
-      includeInTotal: true,
-    };
+      const item = {
+        id: uid(),
+        url,
+        title,
+        description,
+        image,
+        category,
+        price,
+        addedAt: Date.now(),
+        order: lowestOrder - 1,
+        includeInTotal: true,
+      };
 
-    items.push(item);
-    saveItems(items);
+      items.push(item);
+      saveItems(items);
+    }
 
-    // If a filter is active and doesn't already include the new item's
-    // category, add it so the new item is visible; "Todas" (empty selection)
-    // just stays put since the new item already joins the aggregate list.
+    // If a filter is active and doesn't already include this item's category,
+    // add it so the item stays visible; "Todas" (empty selection) just stays
+    // put since the item already belongs to the aggregate list.
     if (selectedFilters.size > 0) {
       selectedFilters.add(category);
     }

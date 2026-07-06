@@ -311,6 +311,7 @@ body {
 .card-move-down,
 .card-toggle-total,
 .card-drag,
+.card-edit,
 .card-remove {
   border: 1px solid var(--border);
   background: var(--bg);
@@ -322,7 +323,8 @@ body {
 
 .card-move-up:hover,
 .card-move-down:hover,
-.card-toggle-total:hover {
+.card-toggle-total:hover,
+.card-edit:hover {
   color: var(--text);
 }
 
