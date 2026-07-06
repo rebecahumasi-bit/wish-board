@@ -122,6 +122,37 @@
     }
   }
 
+  // Amazon and Mercado Livre run antibot protection that redirects the scraper
+  // to a verification/CAPTCHA page before it ever reaches the product page —
+  // no code fix on our end can get around that without a paid proxy service.
+  const BLOCKED_DOMAIN_PATTERNS = [/amazon\./, /mercadolivre\./, /mercadolibre\./];
+
+  function isKnownBlockedDomain(domain) {
+    return BLOCKED_DOMAIN_PATTERNS.some((re) => re.test(domain));
+  }
+
+  // Even when the fetch "succeeds", a blocked domain often hands back the
+  // verification page itself (generic brand title, cookie-notice description)
+  // instead of the real product — catch that so we don't silently save junk.
+  const BOT_BLOCK_TITLES = new Set([
+    "mercado libre",
+    "mercado livre",
+    "amazon.com",
+    "amazon",
+    "just a moment...",
+    "attention required! | cloudflare",
+    "access denied",
+    "robot check",
+  ]);
+
+  function looksLikeBotBlockPage(meta) {
+    const title = (meta.title || "").trim().toLowerCase();
+    return BOT_BLOCK_TITLES.has(title);
+  }
+
+  const BLOCKED_DOMAIN_MESSAGE =
+    'Amazon e Mercado Livre bloqueiam a busca automática (proteção antibot deles). Copie a imagem do produto (clique com o botão direito nela > "Copiar endereço da imagem") e cole no campo abaixo, e preencha o preço manualmente.';
+
   // ---------- Category select setup (always all 18 categories, for assigning an item) ----------
 
   const todasBtn = document.getElementById("todasBtn");
@@ -394,12 +425,26 @@
       return;
     }
 
+    const domain = getDomain(url);
+    if (isKnownBlockedDomain(domain)) {
+      fetchStatus.textContent = BLOCKED_DOMAIN_MESSAGE;
+      fetchStatus.classList.add("error");
+      imageInput.focus();
+      return;
+    }
+
     fetchStatus.textContent = "Buscando dados do produto...";
     fetchStatus.classList.remove("error");
     fetchBtn.disabled = true;
 
     try {
       const meta = await fetchMetadata(url);
+      if (looksLikeBotBlockPage(meta)) {
+        fetchStatus.textContent = BLOCKED_DOMAIN_MESSAGE;
+        fetchStatus.classList.add("error");
+        imageInput.focus();
+        return;
+      }
       if (meta.title) titleInput.value = meta.title;
       if (meta.description) descInput.value = meta.description;
       if (meta.image) imageInput.value = meta.image;
