@@ -156,6 +156,56 @@ body {
   color: var(--accent-text);
 }
 
+.manage-categories-btn {
+  margin-left: auto;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-muted);
+  padding: 5px 10px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.manage-categories-btn:hover {
+  color: var(--text);
+}
+
+.category-manage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.category-row {
+  display: flex;
+  gap: 8px;
+}
+
+.category-row .category-label-input {
+  flex: 1;
+}
+
+.category-delete-btn {
+  border: 1px solid var(--danger);
+  background: var(--bg);
+  color: var(--danger);
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.category-delete-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.category-delete-btn:disabled {
+  border-color: var(--border);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -379,7 +429,9 @@ body {
 
 .field input,
 .field select,
-.field textarea {
+.field textarea,
+.category-label-input,
+#newCategoryInput {
   font-family: inherit;
   font-size: 0.88rem;
   font-weight: 400;
@@ -392,7 +444,9 @@ body {
 
 .field input:focus,
 .field select:focus,
-.field textarea:focus {
+.field textarea:focus,
+.category-label-input:focus,
+#newCategoryInput:focus {
   outline: 1px solid var(--accent);
 }
 

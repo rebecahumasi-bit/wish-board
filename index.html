@@ -124,6 +124,24 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="categoryModalOverlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="categoryModalTitle">
+    <div class="modal-header">
+      <h3 id="categoryModalTitle">Gerenciar categorias</h3>
+      <button class="modal-close" id="closeCategoryModalBtn" type="button" aria-label="Fechar">&times;</button>
+    </div>
+
+    <div class="modal-body">
+      <div class="field-row">
+        <input type="text" id="newCategoryInput" placeholder="Nova categoria" />
+        <button type="button" class="btn" id="addCategoryBtn">Adicionar</button>
+      </div>
+
+      <div class="category-manage-list" id="categoryManageList"></div>
+    </div>
+  </div>
+</div>
+
 <template id="cardTemplate">
   <article class="card">
     <div class="card-image-wrap">

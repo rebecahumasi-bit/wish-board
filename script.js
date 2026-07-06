@@ -9,10 +9,12 @@
   if (!currentUser) return;
 
   const STORAGE_KEY = "productWishlist:items:v2:" + currentUser;
+  const CATEGORIES_STORAGE_KEY = "productWishlist:categories:v1:" + currentUser;
   const MICROLINK_ENDPOINT = "https://api.microlink.io/";
   const FETCH_TIMEOUT_MS = 8000;
+  const PROTECTED_CATEGORY_KEY = "geral"; // fallback target throughout the app — never deletable
 
-  const CATEGORIES = [
+  const DEFAULT_CATEGORIES = [
     { key: "moveis", label: "Móveis" },
     { key: "cozinha", label: "Cozinha" },
     { key: "banheiro", label: "Banheiro" },
@@ -32,8 +34,88 @@
     { key: "diversao", label: "Diversão" },
     { key: "alimentos", label: "Alimentos" },
   ];
-  const CATEGORY_KEYS = new Set(CATEGORIES.map((c) => c.key));
   const ALL_KEY = "todas";
+
+  function loadCategories() {
+    try {
+      const raw = window.localStorage.getItem(CATEGORIES_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return Array.isArray(parsed) && parsed.length ? parsed : DEFAULT_CATEGORIES.map((c) => ({ ...c }));
+    } catch (err) {
+      return DEFAULT_CATEGORIES.map((c) => ({ ...c }));
+    }
+  }
+
+  function saveCategories(categories) {
+    try {
+      window.localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(categories));
+    } catch (err) {
+      // Categories just won't persist across reloads if storage is unavailable.
+    }
+  }
+
+  let CATEGORIES = loadCategories();
+
+  function isValidCategoryKey(key) {
+    return CATEGORIES.some((c) => c.key === key);
+  }
+
+  // Turns a typed label into a stable, URL/id-safe key: strip accents, lowercase,
+  // collapse everything else to hyphens. Falls back to a random id if that
+  // leaves nothing usable, and de-dupes against existing keys.
+  function slugify(label) {
+    const base = label
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-+|-+$)/g, "");
+    let key = base || uid();
+    let n = 2;
+    while (CATEGORIES.some((c) => c.key === key)) {
+      key = `${base || "categoria"}-${n++}`;
+    }
+    return key;
+  }
+
+  function addCategory(label) {
+    const trimmed = label.trim();
+    if (!trimmed) return;
+    if (CATEGORIES.some((c) => c.label.toLowerCase() === trimmed.toLowerCase())) {
+      alert("Essa categoria já existe.");
+      return;
+    }
+    CATEGORIES.push({ key: slugify(trimmed), label: trimmed });
+    saveCategories(CATEGORIES);
+  }
+
+  function renameCategory(key, newLabel) {
+    const cat = CATEGORIES.find((c) => c.key === key);
+    const trimmed = newLabel.trim();
+    if (!cat || !trimmed) return;
+    cat.label = trimmed;
+    saveCategories(CATEGORIES);
+  }
+
+  function deleteCategory(key) {
+    if (key === PROTECTED_CATEGORY_KEY) return;
+
+    const affected = items.filter((item) => item.category === key);
+    if (affected.length) {
+      const ok = confirm(
+        `${affected.length} item(ns) usam essa categoria. Eles serão movidos para "Geral". Continuar?`
+      );
+      if (!ok) return;
+      affected.forEach((item) => {
+        item.category = PROTECTED_CATEGORY_KEY;
+      });
+      saveItems(items);
+    }
+
+    CATEGORIES = CATEGORIES.filter((c) => c.key !== key);
+    saveCategories(CATEGORIES);
+    selectedFilters.delete(key);
+  }
 
   const currencyFormatter = new Intl.NumberFormat("pt-BR", {
     style: "currency",
@@ -139,19 +221,25 @@
     }
   }
 
-  // ---------- Category select setup (always all 18 categories, for assigning an item) ----------
+  // ---------- Category select setup (for assigning an item; rebuilt whenever categories change) ----------
 
   const todasBtn = document.getElementById("todasBtn");
   const subcatNav = document.getElementById("subcatNav");
   const categoryInput = document.getElementById("categoryInput");
 
-  CATEGORIES.forEach((cat) => {
-    const option = document.createElement("option");
-    option.value = cat.key;
-    option.textContent = cat.label;
-    if (cat.key === "geral") option.selected = true;
-    categoryInput.appendChild(option);
-  });
+  function renderCategorySelect() {
+    const previousValue = categoryInput.value;
+    categoryInput.innerHTML = "";
+    CATEGORIES.forEach((cat) => {
+      const option = document.createElement("option");
+      option.value = cat.key;
+      option.textContent = cat.label;
+      categoryInput.appendChild(option);
+    });
+    categoryInput.value = isValidCategoryKey(previousValue) ? previousValue : PROTECTED_CATEGORY_KEY;
+  }
+
+  renderCategorySelect();
 
   // ---------- Rendering ----------
 
@@ -244,6 +332,14 @@
       subcatNav.appendChild(btn);
     });
 
+    const manageBtn = document.createElement("button");
+    manageBtn.type = "button";
+    manageBtn.className = "manage-categories-btn";
+    manageBtn.title = "Gerenciar categorias";
+    manageBtn.setAttribute("aria-label", "Gerenciar categorias");
+    manageBtn.textContent = "⚙";
+    subcatNav.appendChild(manageBtn);
+
     todasBtn.classList.toggle("active", selectedFilters.size === 0);
   }
 
@@ -294,6 +390,11 @@
   todasBtn.addEventListener("click", resetToAll);
 
   subcatNav.addEventListener("click", (e) => {
+    if (e.target.closest(".manage-categories-btn")) {
+      openCategoryModal();
+      return;
+    }
+
     const btn = e.target.closest(".subcat-btn");
     if (!btn) return;
     const key = btn.dataset.cat;
@@ -500,7 +601,7 @@
 
     if (!url || !title || Number.isNaN(price)) return;
 
-    const category = CATEGORY_KEYS.has(categoryInput.value) ? categoryInput.value : "geral";
+    const category = isValidCategoryKey(categoryInput.value) ? categoryInput.value : PROTECTED_CATEGORY_KEY;
 
     // New items sort to the top of whatever list they land in — one less
     // than the current lowest order value, so ascending sort puts it first.
@@ -534,6 +635,95 @@
     updateSummary();
 
     closeModal();
+  });
+
+  // ---------- Category management modal ----------
+
+  const categoryModalOverlay = document.getElementById("categoryModalOverlay");
+  const categoryManageList = document.getElementById("categoryManageList");
+  const newCategoryInput = document.getElementById("newCategoryInput");
+  const addCategoryBtn = document.getElementById("addCategoryBtn");
+
+  function renderCategoryManageList() {
+    categoryManageList.innerHTML = "";
+    CATEGORIES.forEach((cat) => {
+      const row = document.createElement("div");
+      row.className = "category-row";
+      row.dataset.key = cat.key;
+
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "category-label-input";
+      input.value = cat.label;
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "category-delete-btn";
+      deleteBtn.textContent = "Excluir";
+      if (cat.key === PROTECTED_CATEGORY_KEY) {
+        deleteBtn.disabled = true;
+        deleteBtn.title = "Categoria padrão, não pode ser excluída";
+      }
+
+      row.appendChild(input);
+      row.appendChild(deleteBtn);
+      categoryManageList.appendChild(row);
+    });
+  }
+
+  function refreshAfterCategoryChange() {
+    renderCategorySelect();
+    renderSubcatNav();
+    renderCategoryPanel();
+    updateSummary();
+  }
+
+  function openCategoryModal() {
+    renderCategoryManageList();
+    newCategoryInput.value = "";
+    categoryModalOverlay.hidden = false;
+  }
+
+  function closeCategoryModal() {
+    categoryModalOverlay.hidden = true;
+  }
+
+  document.getElementById("closeCategoryModalBtn").addEventListener("click", closeCategoryModal);
+  categoryModalOverlay.addEventListener("click", (e) => {
+    if (e.target === categoryModalOverlay) closeCategoryModal();
+  });
+
+  function submitNewCategory() {
+    addCategory(newCategoryInput.value);
+    newCategoryInput.value = "";
+    newCategoryInput.focus();
+    renderCategoryManageList();
+    refreshAfterCategoryChange();
+  }
+
+  addCategoryBtn.addEventListener("click", submitNewCategory);
+  newCategoryInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submitNewCategory();
+    }
+  });
+
+  categoryManageList.addEventListener("change", (e) => {
+    const input = e.target.closest(".category-label-input");
+    if (!input) return;
+    const key = input.closest(".category-row").dataset.key;
+    renameCategory(key, input.value);
+    refreshAfterCategoryChange();
+  });
+
+  categoryManageList.addEventListener("click", (e) => {
+    const btn = e.target.closest(".category-delete-btn");
+    if (!btn || btn.disabled) return;
+    const key = btn.closest(".category-row").dataset.key;
+    deleteCategory(key);
+    renderCategoryManageList();
+    refreshAfterCategoryChange();
   });
 
   // ---------- Export / Import ----------
@@ -571,7 +761,7 @@
             title: item.title,
             description: typeof item.description === "string" ? item.description : "",
             image: typeof item.image === "string" ? item.image : "",
-            category: CATEGORY_KEYS.has(item.category) ? item.category : "geral",
+            category: isValidCategoryKey(item.category) ? item.category : PROTECTED_CATEGORY_KEY,
             price: Number(item.price) || 0,
             addedAt: item.addedAt || Date.now(),
             order: Number(item.order) || Number(item.addedAt) || Date.now() + index,
