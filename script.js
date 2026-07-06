@@ -11,7 +11,11 @@
   const STORAGE_KEY = "productWishlist:items:v2:" + currentUser;
   const CATEGORIES_STORAGE_KEY = "productWishlist:categories:v1:" + currentUser;
   const MICROLINK_ENDPOINT = "https://api.microlink.io/";
-  const FETCH_TIMEOUT_MS = 8000;
+  // Microlink scrapes the target page server-side on a cache miss, which can
+  // easily take longer than a few seconds for heavier pages — 8s was cutting
+  // that off before the first (uncached) request finished, so a first click
+  // would silently fail and only the second click (now cached) would work.
+  const FETCH_TIMEOUT_MS = 20000;
   const PROTECTED_CATEGORY_KEY = "geral"; // fallback target throughout the app — never deletable
 
   const DEFAULT_CATEGORIES = [
