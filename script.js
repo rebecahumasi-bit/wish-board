@@ -150,9 +150,6 @@
     return BOT_BLOCK_TITLES.has(title);
   }
 
-  const BLOCKED_DOMAIN_MESSAGE =
-    'Amazon e Mercado Livre bloqueiam a busca automática (proteção antibot deles). Copie a imagem do produto (clique com o botão direito nela > "Copiar endereço da imagem") e cole no campo abaixo, e preencha o preço manualmente.';
-
   // ---------- Category select setup (always all 18 categories, for assigning an item) ----------
 
   const todasBtn = document.getElementById("todasBtn");
@@ -394,7 +391,6 @@
     modalOverlay.hidden = true;
     addForm.reset();
     fetchStatus.textContent = "";
-    fetchStatus.classList.remove("error");
     previewBox.hidden = true;
   }
 
@@ -419,41 +415,31 @@
 
   fetchBtn.addEventListener("click", async () => {
     const url = urlInput.value.trim();
-    if (!url) {
-      fetchStatus.textContent = "Cole um link antes de buscar.";
-      fetchStatus.classList.add("error");
-      return;
-    }
+    if (!url) return;
 
+    // Amazon/Mercado Livre run antibot protection that blocks this entirely —
+    // nothing to fetch there, so skip straight to manual entry, no message.
     const domain = getDomain(url);
-    if (isKnownBlockedDomain(domain)) {
-      fetchStatus.textContent = BLOCKED_DOMAIN_MESSAGE;
-      fetchStatus.classList.add("error");
-      imageInput.focus();
-      return;
-    }
+    if (isKnownBlockedDomain(domain)) return;
 
     fetchStatus.textContent = "Buscando dados do produto...";
-    fetchStatus.classList.remove("error");
     fetchBtn.disabled = true;
 
     try {
       const meta = await fetchMetadata(url);
-      if (looksLikeBotBlockPage(meta)) {
-        fetchStatus.textContent = BLOCKED_DOMAIN_MESSAGE;
-        fetchStatus.classList.add("error");
-        imageInput.focus();
-        return;
+      // A blocked/verification page sometimes "succeeds" but hands back generic
+      // junk (site name as title, cookie-notice as description) — skip it
+      // rather than silently filling the form with the wrong info.
+      if (!looksLikeBotBlockPage(meta)) {
+        if (meta.title) titleInput.value = meta.title;
+        if (meta.description) descInput.value = meta.description;
+        if (meta.image) imageInput.value = meta.image;
+        updatePreview();
       }
-      if (meta.title) titleInput.value = meta.title;
-      if (meta.description) descInput.value = meta.description;
-      if (meta.image) imageInput.value = meta.image;
-      fetchStatus.textContent = "Dados encontrados. Revise antes de adicionar.";
-      updatePreview();
     } catch (err) {
-      fetchStatus.textContent = "Não foi possível buscar automaticamente. Preencha manualmente.";
-      fetchStatus.classList.add("error");
+      // Fetch failed — leave whatever fields are still empty for manual entry.
     } finally {
+      fetchStatus.textContent = "";
       fetchBtn.disabled = false;
     }
   });
