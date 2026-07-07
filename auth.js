@@ -116,7 +116,7 @@
             return;
           }
           localStorage.setItem(MODE_KEY, "cloud");
-          localStorage.setItem(SESSION_USER_KEY, SHARED_EMAIL);
+          localStorage.setItem(SESSION_USER_KEY, typed);
           location.reload();
         } catch (err) {
           const detalhe = err && err.message ? " (" + err.message + ")" : "";
