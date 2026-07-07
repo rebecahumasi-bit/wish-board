@@ -15,7 +15,6 @@
   const USERS_KEY = "wishboard:users";
   const SESSION_USER_KEY = "wishboard:currentUser";
   const MODE_KEY = "wishboard:mode"; // "local" | "cloud"
-  const SHARED_EMAIL = "***REMOVED***";
 
   const overlay = document.getElementById("authOverlay");
   const form = document.getElementById("authForm");
@@ -96,8 +95,11 @@
         return;
       }
 
-      // --- Caminho da conta CONJUNTA na nuvem (só quem digita o e-mail secreto) ---
-      if (typed.toLowerCase() === SHARED_EMAIL.toLowerCase()) {
+      // --- Caminho da conta CONJUNTA na nuvem ---
+      // Se o "usuário" tiver formato de e-mail, tentamos entrar na nuvem. O
+      // e-mail NÃO fica guardado no código — por isso o repositório pode ser
+      // público sem revelar a conta conjunta. Só quem conhece o e-mail entra.
+      if (typed.includes("@")) {
         if (!window.sb) {
           showError("Conexão com a nuvem indisponível. Recarregue a página.");
           return;
@@ -106,7 +108,7 @@
         showError("");
         try {
           const { error } = await window.sb.auth.signInWithPassword({
-            email: SHARED_EMAIL,
+            email: typed,
             password,
           });
           if (error) {
