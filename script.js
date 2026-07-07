@@ -474,6 +474,9 @@
     const entries = [{ key: ALL_KEY, label: "Todas" }, ...CATEGORIES];
 
     subcatNav.innerHTML = "";
+
+    const list = document.createElement("div");
+    list.className = "subcat-list";
     entries.forEach((cat) => {
       const isActive = cat.key === ALL_KEY ? selectedFilters.size === 0 : selectedFilters.has(cat.key);
       const btn = document.createElement("button");
@@ -481,8 +484,9 @@
       btn.className = "subcat-btn" + (isActive ? " active" : "");
       btn.dataset.cat = cat.key;
       btn.textContent = cat.label;
-      subcatNav.appendChild(btn);
+      list.appendChild(btn);
     });
+    subcatNav.appendChild(list);
 
     const manageBtn = document.createElement("button");
     manageBtn.type = "button";
