@@ -306,13 +306,12 @@ body {
 .card-controls {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px;
   border-top: 1px solid var(--border);
   padding-top: 8px;
 }
 
-.card-move-up,
-.card-move-down,
 .card-toggle-total,
 .card-drag,
 .card-edit,
@@ -325,8 +324,6 @@ body {
   padding: 4px 8px;
 }
 
-.card-move-up:hover,
-.card-move-down:hover,
 .card-toggle-total:hover,
 .card-edit:hover {
   color: var(--text);

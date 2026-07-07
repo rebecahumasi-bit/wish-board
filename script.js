@@ -415,7 +415,7 @@
     return item.includeInTotal !== false;
   }
 
-  function buildCard(item, showMove) {
+  function buildCard(item) {
     const node = cardTemplate.content.firstElementChild.cloneNode(true);
 
     const img = node.querySelector(".card-image");
@@ -424,8 +424,6 @@
     const descEl = node.querySelector(".card-desc");
     const priceEl = node.querySelector(".card-price");
     const linkEl = node.querySelector(".card-link");
-    const upBtn = node.querySelector(".card-move-up");
-    const downBtn = node.querySelector(".card-move-down");
     const dragBtn = node.querySelector(".card-drag");
 
     const domain = getDomain(item.url);
@@ -437,11 +435,6 @@
     priceEl.textContent = formatPrice(item.price);
     linkEl.href = item.url;
     node.dataset.id = item.id;
-
-    if (!showMove) {
-      upBtn.hidden = true;
-      downBtn.hidden = true;
-    }
 
     setCardIncludedVisual(node, isIncludedInTotal(item));
 
@@ -513,11 +506,10 @@
   }
 
   function renderCategoryPanel() {
-    const showMove = selectedFilters.size === 1;
     const catItems = getVisibleItems();
 
     catGrid.innerHTML = "";
-    catItems.forEach((item) => catGrid.appendChild(buildCard(item, showMove)));
+    catItems.forEach((item) => catGrid.appendChild(buildCard(item)));
   }
 
   function updateSummary() {
@@ -572,33 +564,9 @@
 
   // ---------- Card actions (remove, move) ----------
 
-  function moveItem(id, direction) {
-    const target = items.find((item) => item.id === id);
-    if (!target) return;
-
-    const catItems = items
-      .filter((item) => item.category === target.category)
-      .sort((a, b) => (a.order || 0) - (b.order || 0));
-
-    const idx = catItems.findIndex((item) => item.id === id);
-    const swapIdx = idx + direction;
-    if (swapIdx < 0 || swapIdx >= catItems.length) return;
-
-    const a = catItems[idx];
-    const b = catItems[swapIdx];
-    const tmp = a.order;
-    a.order = b.order;
-    b.order = tmp;
-
-    saveItems(items);
-    renderAll();
-  }
-
   catGrid.addEventListener("click", (e) => {
     const removeBtn = e.target.closest(".card-remove");
     const editBtn = e.target.closest(".card-edit");
-    const upBtn = e.target.closest(".card-move-up");
-    const downBtn = e.target.closest(".card-move-down");
     const toggleBtn = e.target.closest(".card-toggle-total");
     const card = e.target.closest(".card");
     if (!card) return;
@@ -613,10 +581,6 @@
       const item = items.find((i) => i.id === id);
       if (!item) return;
       openEditModal(item);
-    } else if (upBtn) {
-      moveItem(id, -1);
-    } else if (downBtn) {
-      moveItem(id, 1);
     } else if (toggleBtn) {
       const item = items.find((i) => i.id === id);
       if (!item) return;
