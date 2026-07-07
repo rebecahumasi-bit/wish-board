@@ -259,11 +259,33 @@ body {
   gap: 5px;
 }
 
+.card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .card-domain {
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--text-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-category-tag {
+  flex-shrink: 0;
+  font-size: 0.52rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--accent-text);
+  background: var(--accent);
+  padding: 1.6px 4.8px;
+  white-space: nowrap;
 }
 
 .card-title {

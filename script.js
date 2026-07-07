@@ -50,6 +50,11 @@
     return CATEGORIES.some((c) => c.key === key);
   }
 
+  function categoryLabel(key) {
+    const cat = CATEGORIES.find((c) => c.key === key);
+    return cat ? cat.label : key;
+  }
+
   // Turns a typed label into a stable, URL/id-safe key: strip accents, lowercase,
   // collapse everything else to hyphens. Falls back to a random id if that
   // leaves nothing usable, and de-dupes against existing keys.
@@ -420,6 +425,7 @@
 
     const img = node.querySelector(".card-image");
     const domainEl = node.querySelector(".card-domain");
+    const categoryTagEl = node.querySelector(".card-category-tag");
     const titleEl = node.querySelector(".card-title");
     const descEl = node.querySelector(".card-desc");
     const priceEl = node.querySelector(".card-price");
@@ -430,6 +436,7 @@
     img.src = item.image || faviconFor(domain);
     img.alt = item.title || domain;
     domainEl.textContent = domain;
+    categoryTagEl.textContent = categoryLabel(item.category);
     titleEl.textContent = item.title;
     descEl.textContent = item.description || "";
     priceEl.textContent = formatPrice(item.price);
