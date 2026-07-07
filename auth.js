@@ -119,7 +119,9 @@
           localStorage.setItem(SESSION_USER_KEY, SHARED_EMAIL);
           location.reload();
         } catch (err) {
-          showError("Não foi possível entrar. Tente de novo.");
+          const detalhe = err && err.message ? " (" + err.message + ")" : "";
+          showError("Não foi possível entrar" + detalhe + ".");
+          console.error("Erro no login na nuvem:", err);
         } finally {
           submitBtn.disabled = false;
         }
